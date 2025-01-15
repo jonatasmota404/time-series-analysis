@@ -32,5 +32,3 @@ def executar_prophet(caminho_arquivos):
     # Salvar as métricas e os dados de teste e previsões usando as funções de helpers.py
     salvar_metricas_em_csv("Prophet", mae, rmse, r2)
     salva_teste_previsao_csv("prophet", test_data, predictions)
-    
-    return mae, rmse, r2

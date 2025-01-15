@@ -23,6 +23,3 @@ def executar_random_forest(caminho_arquivos):
 
     # Salvar o conjunto de teste e previsões em CSV para análise posterior
     salva_teste_previsao_csv("random_forest", test_data, predictions)
-    
-    
-    return mae, rmse, r2

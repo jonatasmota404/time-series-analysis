@@ -1,8 +1,9 @@
 import pandas as pd
 import glob
 import numpy as np
+import os
 
-def carregar_dados(caminho_arquivos):
+def carregar_dados(caminho_arquivos, pasta="dados_processados"):
     # Lista para armazenar cada DataFrame carregado
     dataframes = []
     for arquivo in glob.glob(caminho_arquivos):
@@ -32,5 +33,15 @@ def carregar_dados(caminho_arquivos):
     # Converter datas para índices numéricos
     train_data['Time_Index'] = np.arange(len(train_data))
     test_data['Time_Index'] = np.arange(len(train_data), len(monthly_avg_prices))
+
+    # Definir o caminho da pasta para salvar os arquivos
+    pasta_destino = f"./{pasta}"
+
+    # Criar a pasta, se ela não existir
+    os.makedirs(pasta_destino, exist_ok=True)
+
+    # Salvar os arquivos na pasta especificada
+    train_data.to_csv(os.path.join(pasta_destino, "train_data.csv"), index=False)
+    test_data.to_csv(os.path.join(pasta_destino, "test_data.csv"), index=False)
     
     return train_data, test_data

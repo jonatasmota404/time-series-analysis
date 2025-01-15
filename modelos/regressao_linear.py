@@ -24,4 +24,3 @@ def executar_regressao_linear(caminho_arquivos):
     # Salvar o conjunto de teste e previsões em CSV para análise posterior
     salva_teste_previsao_csv("regressao_linear", test_data, predictions)
     
-    return mae, rmse, r2

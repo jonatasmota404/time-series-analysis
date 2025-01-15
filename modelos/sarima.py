@@ -26,5 +26,3 @@ def executar_sarima(caminho_arquivos, p=1, d=1, q=1, P=1, D=1, Q=1, s=12):
     
     # Salvar as métricas no CSV sem sobrescrever
     salvar_metricas_em_csv("SARIMA", mae, rmse, r2)
-    
-    return mae, rmse, r2
