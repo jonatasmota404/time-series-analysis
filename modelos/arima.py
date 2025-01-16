@@ -2,7 +2,7 @@ import pandas as pd
 from statsmodels.tsa.arima.model import ARIMA
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import numpy as np
-from helpers import salvar_metricas_em_csv, salva_teste_previsao_csv
+from helpers import salvar_metricas_em_csv, salva_previsao_csv
 
 def executar_arima(caminho_arquivos="dados_processados", p=1, d=1, q=1):
     """
@@ -36,7 +36,7 @@ def executar_arima(caminho_arquivos="dados_processados", p=1, d=1, q=1):
     r2 = r2_score(test_data['Preco_Medio'], predictions)
 
     # Salvar o conjunto de teste e previsões em CSV para análise posterior
-    salva_teste_previsao_csv("arima", test_data, predictions)
+    salva_previsao_csv("arima", predictions)
 
     # Salvar as métricas no CSV sem sobrescrever
     salvar_metricas_em_csv("ARIMA", mae, rmse, r2)

@@ -3,7 +3,7 @@ import glob
 import numpy as np
 import os
 
-def carregar_dados(caminho_arquivos, pasta="dados_processados"):
+def carregar_dados(caminho_arquivos="../data/ca-*.csv", pasta="dados_processados"):
     # Lista para armazenar cada DataFrame carregado
     dataframes = []
     for arquivo in glob.glob(caminho_arquivos):

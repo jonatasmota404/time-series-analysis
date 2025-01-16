@@ -32,7 +32,7 @@ def salvar_metricas_em_csv(nome_modelo, mae, rmse, r2, pasta_metricas="metricas"
     print(f"Resultados do {nome_modelo} adicionados a '{caminho_arquivo}'")
 
 
-def salva_teste_previsao_csv(nome_modelo, test_data, predictions, pasta_testes="testes"):
+def salva_previsao_csv(nome_modelo, predictions, pasta_resultados="resultados", caminho_teste = "dados_processados"):
     """
     Salva os dados de teste e as previsões em arquivos CSV dentro de uma pasta dedicada.
 
@@ -43,14 +43,13 @@ def salva_teste_previsao_csv(nome_modelo, test_data, predictions, pasta_testes="
         pasta_testes (str): Nome da pasta para salvar os arquivos de teste e previsão.
     """
     # Criar a pasta de testes, se não existir
-    os.makedirs(pasta_testes, exist_ok=True)
+    os.makedirs(pasta_resultados, exist_ok=True)
 
-    # Caminhos completos para os arquivos de teste e previsões
-    caminho_teste = os.path.join(pasta_testes, f"{nome_modelo}_test_data.csv")
-    caminho_previsoes = os.path.join(pasta_testes, f"{nome_modelo}_predictions.csv")
+    # Caminhos completos para os arquivos de previsões
+    caminho_previsoes = os.path.join(pasta_resultados, f"{nome_modelo}_predictions.csv")
 
     # Salvar o conjunto de teste e previsões
-    test_data.to_csv(caminho_teste, index=False)
+    test_data = pd.read_csv(f"./{caminho_teste}/test_data.csv")
     pd.DataFrame({"Data": test_data['Data'], "Previsao": predictions}).to_csv(caminho_previsoes, index=False)
 
-    print(f"Dados de teste e previsões do modelo {nome_modelo} salvos em '{pasta_testes}'.")
+    print(f"Dados de teste e previsões do modelo {nome_modelo} salvos em '{pasta_resultados}'.")

@@ -1,9 +1,9 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 
-def plot_comparacao_modelo(nome_modelo, arquivo_test_data, arquivo_predictions):
+def plot_comparacao_modelo(nome_modelo, arquivo_predictions, caminho_teste="dados_processados"):
     # Carregar os dados de teste e previsões salvos em CSV
-    test_data = pd.read_csv(arquivo_test_data)
+    test_data = pd.read_csv(f"./{caminho_teste}/test_data.csv")
     predictions = pd.read_csv(arquivo_predictions)
     
     # Plotar os valores reais vs. previsões

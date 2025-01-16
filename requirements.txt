@@ -1,0 +1,9 @@
+pandas==1.3.5
+numpy==1.21.6
+scikit-learn==0.24.2
+statsmodels==0.13.2
+prophet==1.1.1
+matplotlib==3.5.1
+
+# Versão mínima do Python
+python_version >= 3.8
