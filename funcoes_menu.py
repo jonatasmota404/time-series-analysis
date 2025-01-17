@@ -36,12 +36,12 @@ def executar_modelo_especifico(indice_modelo):
         print("\nÍndice inválido. Escolha um modelo da lista.")
 
 # Função para exibir métricas de um modelo específico
-def exibir_metricas(indice_modelo, caminho_pasta="metricas"):
+def exibir_metricas(indice_modelo, nome_pasta_metricas):
     nome_modelo = modelos_disponiveis.get(indice_modelo)
     if nome_modelo:
         try:
             # Ler o arquivo consolidado de métricas
-            caminho_metricas = f"./{caminho_pasta}/resultados_modelos.csv"
+            caminho_metricas = f"./{nome_pasta_metricas}/resultados_modelos.csv"
             resultados = pd.read_csv(caminho_metricas)
             metricas = resultados[resultados["Modelo"] == nome_modelo]
             if not metricas.empty:
@@ -55,22 +55,23 @@ def exibir_metricas(indice_modelo, caminho_pasta="metricas"):
         print("\nÍndice inválido. Escolha um modelo da lista.")
 
 # Função para exibir gráficos de um modelo específico
-def exibir_graficos(indice_modelo):
+def exibir_graficos(indice_modelo, nome_pasta_test_data):
     nome_modelo = modelos_disponiveis.get(indice_modelo)
     arquivo_predicao = arquivos_prediction.get(indice_modelo)
     if nome_modelo:
         try:
             # Construir caminhos para os arquivos de previsões
             predictions_file = f"./resultados/{arquivo_predicao}_predictions.csv"
+            caminho_test_data = f"./{nome_pasta_test_data}/test_data.csv"
             # Gerar o gráfico
-            plot_comparacao_modelo(nome_modelo, predictions_file)
+            plot_comparacao_modelo(nome_modelo, caminho_test_data,predictions_file)
         except FileNotFoundError:
             print(f"\nArquivos para o modelo {nome_modelo} não encontrados. Execute o modelo primeiro.")
     else:
         print("\nÍndice inválido. Escolha um modelo da lista.")
 
 # Menu interativo
-def menu_interativo():
+def menu_interativo(nome_pasta_metricas="metricas", nome_pasta_test_data="dados_processados"):
     while True:
         print("\n=== MENU INTERATIVO ===")
         print("1. Executar análise de um modelo específico")
@@ -93,14 +94,14 @@ def menu_interativo():
             for indice, modelo in modelos_disponiveis.items():
                 print(f"{indice}. {modelo}")
             indice_modelo = input("Digite o índice do modelo desejado: ")
-            exibir_graficos(indice_modelo)
+            exibir_graficos(indice_modelo, nome_pasta_test_data)
 
         elif escolha == "3":
             print("\nModelos disponíveis:")
             for indice, modelo in modelos_disponiveis.items():
                 print(f"{indice}. {modelo}")
             indice_modelo = input("Digite o índice do modelo desejado: ")
-            exibir_metricas(indice_modelo)
+            exibir_metricas(indice_modelo, nome_pasta_metricas)
 
         elif escolha == "4":
             print("\nExecutando todos os modelos...")

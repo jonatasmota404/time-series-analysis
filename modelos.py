@@ -10,43 +10,51 @@ from statsmodels.tsa.statespace.sarimax import SARIMAX
 
 def executar_arima(caminho_arquivos="dados_processados", p=1, d=1, q=1):
     """
-    Executa o modelo ARIMA nos dados de treino e teste previamente salvos.
-
-    Args:
-        caminho_arquivos (str, optional): Nome da pasta com os dados de treinamento e teste.
-        p (int): Parâmetro auto-regressivo.
-        d (int): Parâmetro de diferenciação.
-        q (int): Parâmetro de média móvel.
-
+    Executa o modelo ARIMA e garante que o número de previsões corresponde ao número de valores reais no conjunto de teste.
     """
-    # Ler os conjuntos de dados de treinamento e teste salvos
     try:
+        # Carregar os conjuntos de treino e teste
         train_data = pd.read_csv(f"./{caminho_arquivos}/train_data.csv")
         test_data = pd.read_csv(f"./{caminho_arquivos}/test_data.csv")
+
+        # Verificar duplicatas nos dados de teste
+        if train_data.duplicated().any() or test_data.duplicated().any():
+            print("Aviso: Foram encontradas duplicatas nos dados. Elas serão removidas.")
+            train_data = train_data.drop_duplicates()
+            test_data = test_data.drop_duplicates()
+
     except FileNotFoundError:
-        print("Erro: Arquivos de treino e teste não encontrados. Certifique-se de executar 'carregar_dados' antes.")
+        print("Erro: Arquivos de treino e teste não encontrados.")
         return
 
-    # Configurar e treinar o modelo ARIMA com os parâmetros (p, d, q)
+    # Treinar o modelo ARIMA
     model_arima = ARIMA(train_data['Preco_Medio'], order=(p, d, q))
     model_arima_fit = model_arima.fit()
 
-    # Fazer previsões para o período do conjunto de teste
-    predictions = model_arima_fit.forecast(steps=len(test_data))
+    # Fazer previsões e ajustar o comprimento
+    num_test_values = len(test_data)
+    predictions = model_arima_fit.forecast(steps=num_test_values)
+    predictions = predictions[:num_test_values]  # Garantir que o comprimento corresponda
 
-    # Calcular métricas de avaliação
-    mae = mean_absolute_error(test_data['Preco_Medio'], predictions)
-    rmse = np.sqrt(mean_squared_error(test_data['Preco_Medio'], predictions))
-    r2 = r2_score(test_data['Preco_Medio'], predictions)
+    # Criar DataFrame com previsões e valores reais
+    df_previsoes = pd.DataFrame({
+        "Data": test_data["Data"].values[:num_test_values],
+        "Preco_Real": test_data["Preco_Medio"].values[:num_test_values],
+        "Previsao": predictions
+    })
 
-    # Salvar o conjunto de teste e previsões em CSV para análise posterior
-    salva_previsao_csv("arima", predictions)
+    # Salvar previsões no arquivo
+    df_previsoes.to_csv(f"resultados/arima_predictions.csv", index=False)
 
-    # Salvar as métricas no CSV sem sobrescrever
+    # Calcular e salvar métricas
+    mae = mean_absolute_error(test_data["Preco_Medio"], predictions)
+    rmse = np.sqrt(mean_squared_error(test_data["Preco_Medio"], predictions))
+    r2 = r2_score(test_data["Preco_Medio"], predictions)
+
     salvar_metricas_em_csv("ARIMA", mae, rmse, r2)
 
-    # Exibir as métricas no terminal
     print(f"ARIMA - MAE: {mae}, RMSE: {rmse}, R²: {r2}")
+    print("Previsões salvas com sucesso em 'resultados/arima_predictions.csv'.")
 
 def executar_prophet(caminho_arquivos="dados_processados"):
     """
@@ -154,48 +162,54 @@ def executar_regressao_linear(caminho_arquivos="dados_processados"):
 
 def executar_sarima(caminho_arquivos="dados_processados", p=1, d=1, q=1, P=1, D=1, Q=1, s=12):
     """
-    Executa o modelo SARIMA utilizando os dados de treino e teste previamente salvos.
-    Salva as métricas e previsões em arquivos específicos para posterior análise.
-
-    Args:
-        caminho_arquivos (str): Caminho para a pasta contendo os dados salvos.
-        p (int): Parâmetro auto-regressivo.
-        d (int): Parâmetro de diferenciação.
-        q (int): Parâmetro de média móvel.
-        P (int): Componente sazonal auto-regressivo.
-        D (int): Componente sazonal de diferenciação.
-        Q (int): Componente sazonal de média móvel.
-        s (int): Período sazonal.
+    Executa o modelo SARIMA e garante que o número de previsões corresponde ao número de valores reais no conjunto de teste.
     """
     try:
-        # Carregar os dados de treino e teste salvos
+        # Carregar os conjuntos de treino e teste
         train_data = pd.read_csv(f"./{caminho_arquivos}/train_data.csv")
         test_data = pd.read_csv(f"./{caminho_arquivos}/test_data.csv")
+
+        # Verificar duplicatas nos dados de teste
+        if train_data.duplicated().any() or test_data.duplicated().any():
+            print("Aviso: Foram encontradas duplicatas nos dados. Elas serão removidas.")
+            train_data = train_data.drop_duplicates()
+            test_data = test_data.drop_duplicates()
+
     except FileNotFoundError:
-        print("Erro: Arquivos de treino e teste não encontrados. Certifique-se de preparar os dados antes de executar o modelo.")
+        print("Erro: Arquivos de treino e teste não encontrados.")
         return
 
-    # Configurar e treinar o modelo SARIMA
+    # Treinar o modelo SARIMA
     model_sarima = SARIMAX(
         train_data['Preco_Medio'],
         order=(p, d, q),
         seasonal_order=(P, D, Q, s),
         enforce_stationarity=False,
-        enforce_invertibility=False
+        enforce_invertibility=False,
     )
     model_sarima_fit = model_sarima.fit(disp=False)
 
-    # Fazer previsões para o período do conjunto de teste
-    predictions = model_sarima_fit.forecast(steps=len(test_data))
+    # Fazer previsões e ajustar o comprimento
+    num_test_values = len(test_data)
+    predictions = model_sarima_fit.forecast(steps=num_test_values)
+    predictions = predictions[:num_test_values]  # Garantir que o comprimento corresponda
 
-    # Calcular métricas de avaliação
-    mae = mean_absolute_error(test_data['Preco_Medio'], predictions)
-    rmse = np.sqrt(mean_squared_error(test_data['Preco_Medio'], predictions))
-    r2 = r2_score(test_data['Preco_Medio'], predictions)
+    # Criar DataFrame com previsões e valores reais
+    df_previsoes = pd.DataFrame({
+        "Data": test_data["Data"].values[:num_test_values],
+        "Preco_Real": test_data["Preco_Medio"].values[:num_test_values],
+        "Previsao": predictions
+    })
 
-    # Salvar os resultados
+    # Salvar previsões no arquivo
+    df_previsoes.to_csv(f"resultados/sarima_predictions.csv", index=False)
+
+    # Calcular e salvar métricas
+    mae = mean_absolute_error(test_data["Preco_Medio"], predictions)
+    rmse = np.sqrt(mean_squared_error(test_data["Preco_Medio"], predictions))
+    r2 = r2_score(test_data["Preco_Medio"], predictions)
+
     salvar_metricas_em_csv("SARIMA", mae, rmse, r2)
-    salva_previsao_csv("sarima", predictions)
 
-    # Exibir as métricas no terminal
     print(f"SARIMA - MAE: {mae}, RMSE: {rmse}, R²: {r2}")
+    print("Previsões salvas com sucesso em 'resultados/sarima_predictions.csv'.")
