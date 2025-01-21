@@ -2,7 +2,7 @@ from funcoes_menu import menu_interativo
 from dados import carregar_dados
 import os
 
-caminho_arquivos = "../data/ca-*.csv"
+caminho_arquivos = "./data/ca-*.csv"
 pasta_dados_processados = "dados_processados"
 
 # Execução principal

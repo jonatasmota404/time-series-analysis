@@ -8,6 +8,7 @@ Este projeto realiza a análise de modelos de previsão para séries temporais u
 - `dados_processados/`: Contém os arquivos de treino e teste gerados a partir dos dados originais.
 - `metricas/`: Armazena as métricas de desempenho dos modelos.
 - `visualizacao/`: Contém as funções para geração de gráficos de comparação.
+- `data/` : Contém os dados que serão processados
 
 ### Arquivos Importantes
 - `main.py`: Ponto de entrada do projeto, com menu interativo para execução dos modelos.
@@ -44,7 +45,7 @@ Este projeto realiza a análise de modelos de previsão para séries temporais u
 
 ## Uso
 
-1. Certifique-se de que os dados originais estão disponíveis no diretório `../data/` com o padrão de nome `ca-*.csv`.
+1. Descompacte o arquivo data.zip, crie o diretório `data/` e certifique-se de que os dados originais estão disponíveis no diretório `./data/` com o padrão de nome `ca-*.csv`. 
 2. Execute o arquivo principal:
    ```bash
    python main.py
