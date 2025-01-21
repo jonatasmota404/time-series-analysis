@@ -45,7 +45,7 @@ Este projeto realiza a análise de modelos de previsão para séries temporais u
 
 ## Uso
 
-1. Descompacte o arquivo data.zip, crie o diretório `data/` e certifique-se de que os dados originais estão disponíveis no diretório `./data/` com o padrão de nome `ca-*.csv`. 
+1. Baixe o arquivo de dados no link **[data](https://drive.google.com/file/d/1WaVqoM8cAmw8JFwRWpZcMtMUF9-M4Wvp/view?usp=sharing)**. Descompacte o arquivo data.zip, crie o diretório `data/` e certifique-se de que os dados originais estão disponíveis no diretório `./data/` com o padrão de nome `ca-*.csv`. 
 2. Execute o arquivo principal:
    ```bash
    python main.py
