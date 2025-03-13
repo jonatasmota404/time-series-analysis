@@ -4,6 +4,10 @@ metricas/*.csv
 resultados/*.csv
 *.csv
 
+# Ignorar arquivos PNG
+resultados_comparacao/*.png
+resultados_eda/*.png
+
 # Ignorar arquivos de cache do Python
 __pycache__
 __pycache__/

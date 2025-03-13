@@ -1,215 +1,366 @@
+import os
 import pandas as pd
-from statsmodels.tsa.arima.model import ARIMA
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import numpy as np
-from helpers import salvar_metricas_em_csv, salva_previsao_csv
-from prophet import Prophet
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.linear_model import LinearRegression
+import helpers as helper
+from statsmodels.tsa.stattools import adfuller, kpss
+from statsmodels.tsa.arima.model import ARIMA
 from statsmodels.tsa.statespace.sarimax import SARIMAX
+from prophet import Prophet
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
-def executar_arima(caminho_arquivos="dados_processados", p=1, d=1, q=1):
+
+def testar_estacionariedade(series):
     """
-    Executa o modelo ARIMA e garante que o número de previsões corresponde ao número de valores reais no conjunto de teste.
+    Executa os testes de ADF e KPSS para avaliar a estacionariedade da série.
+    """
+    print("\n📊 Teste de Estacionariedade:")
+
+    # Remover valores ausentes e infinitos
+    series.dropna(inplace=True)
+    series.replace([np.inf, -np.inf], np.nan, inplace=True)
+    series.dropna(inplace=True)
+
+    if series.empty:
+        print("❌ Série vazia após limpeza. Verifique os dados.")
+        return True
+
+    # Teste de Dickey-Fuller (ADF)
+    adf_resultado = adfuller(series)
+    print(f"ADF Statistic: {adf_resultado[0]:.4f}, p-valor: {adf_resultado[1]:.4f}")
+    adf_estacionaria = adf_resultado[1] < 0.05
+
+    # Teste KPSS
+    try:
+        kpss_resultado, kpss_p, *_ = kpss(series, nlags="auto")
+        print(f"KPSS Statistic: {kpss_resultado:.4f}, p-valor: {kpss_p:.4f}")
+        kpss_estacionaria = kpss_p > 0.05
+    except ValueError:
+        print("⚠️ Erro ao executar o teste KPSS.")
+        kpss_estacionaria = False
+
+    return adf_estacionaria and kpss_estacionaria
+
+def carregar_dados(caminho_teste="dados_processados", granularidade="mensal"):
+    """
+    Carrega os dados de treino e teste e verifica a existência dos arquivos.
     """
     try:
-        # Carregar os conjuntos de treino e teste
-        train_data = pd.read_csv(f"./{caminho_arquivos}/train_data.csv")
-        test_data = pd.read_csv(f"./{caminho_arquivos}/test_data.csv")
-
-        # Verificar duplicatas nos dados de teste
-        if train_data.duplicated().any() or test_data.duplicated().any():
-            print("Aviso: Foram encontradas duplicatas nos dados. Elas serão removidas.")
-            train_data = train_data.drop_duplicates()
-            test_data = test_data.drop_duplicates()
-
+        train_data = pd.read_csv(f"./{caminho_teste}/train_data_{granularidade}.csv")
+        test_data = pd.read_csv(f"./{caminho_teste}/test_data_{granularidade}.csv")
     except FileNotFoundError:
-        print("Erro: Arquivos de treino e teste não encontrados.")
+        print(f"❌ Erro: Arquivos não encontrados para a granularidade {granularidade}.")
+        return None, None
+
+    # Converter 'Data' para datetime e definir como índice
+    train_data["Data"] = pd.to_datetime(train_data["Data"])
+    train_data.set_index("Data", inplace=True)
+
+    test_data["Data"] = pd.to_datetime(test_data["Data"])
+    test_data.set_index("Data", inplace=True)
+
+    # Garantir frequência do índice para previsões futuras
+    if granularidade == "mensal":
+        train_data = train_data.asfreq("ME")  # Atualizado
+        test_data = test_data.asfreq("ME")
+    elif granularidade == "semanal":
+        train_data = train_data.asfreq("W")
+        test_data = test_data.asfreq("W")
+    elif granularidade == "diaria":
+        train_data = train_data.asfreq("D")
+        test_data = test_data.asfreq("D")
+
+    return train_data, test_data
+
+def ajustar_arima(train_data, test_data, nome_modelo="ARIMA", granularidade="mensal"):
+    """
+    Ajusta o modelo ARIMA com detecção automática de diferenciação (d).
+    """
+    if train_data is None or test_data is None:
+        print("❌ Erro: Conjuntos de dados inválidos.")
         return
 
-    # Treinar o modelo ARIMA
-    model_arima = ARIMA(train_data['Preco_Medio'], order=(p, d, q))
-    model_arima_fit = model_arima.fit()
+    # Verificar se a série é estacionária
+    precisa_diff = not testar_estacionariedade(train_data["Preco_Medio"])
 
-    # Fazer previsões e ajustar o comprimento
-    num_test_values = len(test_data)
-    predictions = model_arima_fit.forecast(steps=num_test_values)
-    predictions = predictions[:num_test_values]  # Garantir que o comprimento corresponda
+    if precisa_diff:
+        print("🔁 Aplicando diferenciação para tornar a série estacionária...")
+        train_data["Preco_Medio"] = train_data["Preco_Medio"].diff()
+        train_data.dropna(inplace=True)
 
-    # Criar DataFrame com previsões e valores reais
-    df_previsoes = pd.DataFrame({
-        "Data": test_data["Data"].values[:num_test_values],
-        "Preco_Real": test_data["Preco_Medio"].values[:num_test_values],
-        "Previsao": predictions
-    })
+    melhor_p, melhor_d, melhor_q = 1, 1, 1
+    melhor_rmse = float("inf")
 
-    # Salvar previsões no arquivo
-    df_previsoes.to_csv(f"resultados/arima_predictions.csv", index=False)
+    print("\n🔍 Otimizando parâmetros para ARIMA...")
+    for p in range(0, 3):
+        for d in range(0, 2):
+            for q in range(0, 3):
+                try:
+                    modelo = ARIMA(train_data["Preco_Medio"], order=(p, d, q))
+                    resultado = modelo.fit()
+                    previsoes = resultado.forecast(steps=len(test_data))
 
-    # Calcular e salvar métricas
-    mae = mean_absolute_error(test_data["Preco_Medio"], predictions)
-    rmse = np.sqrt(mean_squared_error(test_data["Preco_Medio"], predictions))
-    r2 = r2_score(test_data["Preco_Medio"], predictions)
+                    # Garantir o alinhamento do índice
+                    previsoes.index = test_data.index
 
-    salvar_metricas_em_csv("ARIMA", mae, rmse, r2)
+                    # Remover NaNs antes de calcular métricas
+                    previsoes.dropna(inplace=True)
+                    test_data_validado = test_data.loc[previsoes.index]
 
-    print(f"ARIMA - MAE: {mae}, RMSE: {rmse}, R²: {r2}")
-    print("Previsões salvas com sucesso em 'resultados/arima_predictions.csv'.")
+                    rmse = np.sqrt(mean_squared_error(test_data_validado["Preco_Medio"], previsoes))
 
-def executar_prophet(caminho_arquivos="dados_processados"):
+                    if rmse < melhor_rmse:
+                        melhor_p, melhor_d, melhor_q = p, d, q
+                        melhor_rmse = rmse
+
+                except Exception as e:
+                    print(f"❌ Erro ao ajustar ARIMA({p},{d},{q}): {e}")
+
+    print(f"✅ Melhor configuração para ARIMA: (p, d, q) = ({melhor_p}, {melhor_d}, {melhor_q})")
+
+    # Ajustar o modelo final
+    modelo_final = ARIMA(train_data["Preco_Medio"], order=(melhor_p, melhor_d, melhor_q))
+    resultado_final = modelo_final.fit()
+
+    # Fazer previsões e alinhar índice
+    previsoes = resultado_final.forecast(steps=len(test_data))
+    previsoes.index = test_data.index
+
+    # Remover valores ausentes
+    previsoes.dropna(inplace=True)
+    test_data_validado = test_data.loc[previsoes.index]
+
+    # Calcular métricas
+    mae = mean_absolute_error(test_data_validado["Preco_Medio"], previsoes)
+    rmse = np.sqrt(mean_squared_error(test_data_validado["Preco_Medio"], previsoes))
+    r2 = r2_score(test_data_validado["Preco_Medio"], previsoes)
+
+    # Salvar métricas e previsões
+    helper.salvar_metricas_em_csv(nome_modelo, mae, rmse, r2, granularidade)
+    helper.salva_previsao_csv(nome_modelo.lower(), previsoes.values, granularidade)
+
+    print(f"📊 {nome_modelo} - MAE: {mae:.4f}, RMSE: {rmse:.4f}, R²: {r2:.4f}")
+    print(f"📁 Previsões salvas em 'resultados/{nome_modelo.lower()}_predictions.csv'.")
+
+def executar_arima(caminho_teste="dados_processados", granularidade="mensal"):
     """
-    Executa o modelo Prophet utilizando os dados de treino e teste previamente salvos.
-    Salva as métricas e previsões em arquivos específicos para posterior análise.
+    Executa o pipeline completo do modelo ARIMA para a granularidade especificada.
     """
-    try:
-        # Carregar os dados de treino e teste salvos
-        train_data = pd.read_csv(f"./{caminho_arquivos}/train_data.csv")
-        test_data = pd.read_csv(f"./{caminho_arquivos}/test_data.csv")
-    except FileNotFoundError:
-        print("Erro: Arquivos de treino e teste não encontrados. Certifique-se de preparar os dados antes de executar o modelo.")
+    print(f"\n🚀 Executando ARIMA com otimização de parâmetros para granularidade {granularidade}...")
+
+    train_data, test_data = carregar_dados(caminho_teste, granularidade)
+    # Aplicar tratamento (escolha o método desejado: 'interpolacao', 'ffill' ou 'drop')
+    train_data, test_data = helper.tratar_nans(train_data, test_data, metodo="interpolacao")
+    ajustar_arima(train_data, test_data, "ARIMA", granularidade)
+
+def ajustar_sarima(train_data, test_data, nome_modelo="SARIMA", granularidade="mensal"):
+    """
+    Ajusta o modelo SARIMA com detecção automática de diferenciação (d) e sazonalidade (s).
+    """
+    if train_data is None or test_data is None:
+        print("❌ Erro: Conjuntos de dados inválidos.")
         return
 
-    # Preparar os dados no formato que o Prophet espera
-    train_df = train_data.rename(columns={"Data": "ds", "Preco_Medio": "y"})
-    test_df = test_data.rename(columns={"Data": "ds", "Preco_Medio": "y"})
+    # Validar se há valores ausentes
+    train_data, test_data = helper.tratar_nans(train_data, test_data, metodo="interpolacao")
 
-    # Configurar e treinar o modelo Prophet
-    model_prophet = Prophet(yearly_seasonality=True, weekly_seasonality=False, daily_seasonality=False)
-    model_prophet.fit(train_df)
+    # Detectar a sazonalidade com base na granularidade
+    sazonalidade = {"diaria": 7, "semanal": 52, "mensal": 12}.get(granularidade, 12)
 
-    # Fazer previsões para o período do conjunto de teste
-    future = test_df[['ds']]
-    forecast = model_prophet.predict(future)
+    # Verificar se a série é estacionária
+    precisa_diff = not testar_estacionariedade(train_data["Preco_Medio"])
 
-    # Extrair as previsões
-    predictions = forecast['yhat'].values
+    if precisa_diff:
+        print("🔁 Aplicando diferenciação para tornar a série estacionária...")
+        train_data["Preco_Medio"] = train_data["Preco_Medio"].diff().dropna()
 
-    # Calcular métricas de avaliação
-    mae = mean_absolute_error(test_df['y'], predictions)
-    rmse = np.sqrt(mean_squared_error(test_df['y'], predictions))
-    r2 = r2_score(test_df['y'], predictions)
+    melhor_p, melhor_d, melhor_q = 1, 1, 1
+    melhor_P, melhor_D, melhor_Q = 0, 0, 0
+    melhor_rmse = float("inf")
 
-    # Salvar os resultados
-    salvar_metricas_em_csv("Prophet", mae, rmse, r2)
-    salva_previsao_csv("prophet", predictions)
+    print("\n🔍 Otimizando parâmetros para SARIMA...")
+    for p in range(0, 3):
+        for d in range(0, 2):
+            for q in range(0, 3):
+                for P in range(0, 2):
+                    for D in range(0, 2):
+                        for Q in range(0, 2):
+                            try:
+                                modelo = SARIMAX(
+                                    train_data["Preco_Medio"],
+                                    order=(p, d, q),
+                                    seasonal_order=(P, D, Q, sazonalidade),
+                                    enforce_stationarity=False,
+                                    enforce_invertibility=False
+                                )
+                                resultado = modelo.fit(disp=False)
+                                previsoes = resultado.forecast(steps=len(test_data))
 
-    # Exibir as métricas no terminal
-    print(f"Prophet - MAE: {mae}, RMSE: {rmse}, R²: {r2}")
+                                # Alinhar índice
+                                previsoes.index = test_data.index
 
-def executar_random_forest(caminho_arquivos="dados_processados"):
-    """
-    Executa o modelo Random Forest utilizando os dados de treino e teste previamente salvos.
-    Salva as métricas e previsões em arquivos específicos para posterior análise.
-    """
-    try:
-        # Carregar os dados de treino e teste salvos
-        train_data = pd.read_csv(f"./{caminho_arquivos}/train_data.csv")
-        test_data = pd.read_csv(f"./{caminho_arquivos}/test_data.csv")
-    except FileNotFoundError:
-        print("Erro: Arquivos de treino e teste não encontrados. Certifique-se de preparar os dados antes de executar o modelo.")
-        return
+                                # Remover NaNs para calcular métricas corretamente
+                                previsoes.dropna(inplace=True)
+                                test_data_validado = test_data.loc[previsoes.index]
 
-    # Configuração e treino do modelo
-    model_rf = RandomForestRegressor(n_estimators=100, max_depth=None, random_state=0)
-    model_rf.fit(train_data[['Time_Index']], train_data['Preco_Medio'])
+                                rmse = np.sqrt(mean_squared_error(test_data_validado["Preco_Medio"], previsoes))
 
-    # Fazer previsões e calcular métricas
-    predictions = model_rf.predict(test_data[['Time_Index']])
-    mae = mean_absolute_error(test_data['Preco_Medio'], predictions)
-    rmse = np.sqrt(mean_squared_error(test_data['Preco_Medio'], predictions))
-    r2 = r2_score(test_data['Preco_Medio'], predictions)
+                                if rmse < melhor_rmse:
+                                    melhor_p, melhor_d, melhor_q = p, d, q
+                                    melhor_P, melhor_D, melhor_Q = P, D, Q
+                                    melhor_rmse = rmse
 
-    # Salvar as métricas no CSV sem sobrescrever
-    salvar_metricas_em_csv("Random Forest", mae, rmse, r2)
+                            except Exception as e:
+                                print(f"❌ Erro ao ajustar SARIMA({p},{d},{q})x({P},{D},{Q},{sazonalidade}): {e}")
 
-    # Salvar o conjunto de teste e previsões em CSV para análise posterior
-    salva_previsao_csv("random_forest", predictions)
+    print(f"✅ Melhor configuração para SARIMA: (p, d, q) = ({melhor_p}, {melhor_d}, {melhor_q}) | (P, D, Q, s) = ({melhor_P}, {melhor_D}, {melhor_Q}, {sazonalidade})")
 
-    # Exibir as métricas no terminal
-    print(f"Random Forest - MAE: {mae}, RMSE: {rmse}, R²: {r2}")
-
-def executar_regressao_linear(caminho_arquivos="dados_processados"):
-    """
-    Executa o modelo de Regressão Linear utilizando os dados de treino e teste previamente salvos.
-    Salva as métricas e previsões em arquivos específicos para posterior análise.
-    """
-    try:
-        # Carregar os dados de treino e teste salvos
-        train_data = pd.read_csv(f"./{caminho_arquivos}/train_data.csv")
-        test_data = pd.read_csv(f"./{caminho_arquivos}/test_data.csv")
-    except FileNotFoundError:
-        print("Erro: Arquivos de treino e teste não encontrados. Certifique-se de preparar os dados antes de executar o modelo.")
-        return
-
-    # Configuração e treino do modelo
-    model_lr = LinearRegression()
-    model_lr.fit(train_data[['Time_Index']], train_data['Preco_Medio'])
-
-    # Fazer previsões e calcular métricas
-    predictions = model_lr.predict(test_data[['Time_Index']])
-    mae = mean_absolute_error(test_data['Preco_Medio'], predictions)
-    rmse = np.sqrt(mean_squared_error(test_data['Preco_Medio'], predictions))
-    r2 = r2_score(test_data['Preco_Medio'], predictions)
-
-    # Salvar as métricas no CSV sem sobrescrever
-    salvar_metricas_em_csv("Regressão Linear", mae, rmse, r2)
-
-    # Salvar o conjunto de teste e previsões em CSV para análise posterior
-    salva_previsao_csv("regressao_linear", predictions)
-
-    # Exibir as métricas no terminal
-    print(f"Regressão Linear - MAE: {mae}, RMSE: {rmse}, R²: {r2}")
-
-def executar_sarima(caminho_arquivos="dados_processados", p=1, d=1, q=1, P=1, D=1, Q=1, s=12):
-    """
-    Executa o modelo SARIMA e garante que o número de previsões corresponde ao número de valores reais no conjunto de teste.
-    """
-    try:
-        # Carregar os conjuntos de treino e teste
-        train_data = pd.read_csv(f"./{caminho_arquivos}/train_data.csv")
-        test_data = pd.read_csv(f"./{caminho_arquivos}/test_data.csv")
-
-        # Verificar duplicatas nos dados de teste
-        if train_data.duplicated().any() or test_data.duplicated().any():
-            print("Aviso: Foram encontradas duplicatas nos dados. Elas serão removidas.")
-            train_data = train_data.drop_duplicates()
-            test_data = test_data.drop_duplicates()
-
-    except FileNotFoundError:
-        print("Erro: Arquivos de treino e teste não encontrados.")
-        return
-
-    # Treinar o modelo SARIMA
-    model_sarima = SARIMAX(
-        train_data['Preco_Medio'],
-        order=(p, d, q),
-        seasonal_order=(P, D, Q, s),
+    # Ajustar o modelo final
+    modelo_final = SARIMAX(
+        train_data["Preco_Medio"],
+        order=(melhor_p, melhor_d, melhor_q),
+        seasonal_order=(melhor_P, melhor_D, melhor_Q, sazonalidade),
         enforce_stationarity=False,
-        enforce_invertibility=False,
+        enforce_invertibility=False
     )
-    model_sarima_fit = model_sarima.fit(disp=False)
+    resultado_final = modelo_final.fit(disp=False)
 
-    # Fazer previsões e ajustar o comprimento
-    num_test_values = len(test_data)
-    predictions = model_sarima_fit.forecast(steps=num_test_values)
-    predictions = predictions[:num_test_values]  # Garantir que o comprimento corresponda
+    # Fazer previsões e alinhar índice
+    previsoes = resultado_final.forecast(steps=len(test_data))
+    previsoes.index = test_data.index
 
-    # Criar DataFrame com previsões e valores reais
-    df_previsoes = pd.DataFrame({
-        "Data": test_data["Data"].values[:num_test_values],
-        "Preco_Real": test_data["Preco_Medio"].values[:num_test_values],
-        "Previsao": predictions
-    })
+    # Remover valores ausentes
+    previsoes.dropna(inplace=True)
+    test_data_validado = test_data.loc[previsoes.index]
 
-    # Salvar previsões no arquivo
-    df_previsoes.to_csv(f"resultados/sarima_predictions.csv", index=False)
+    # Calcular métricas
+    mae = mean_absolute_error(test_data_validado["Preco_Medio"], previsoes)
+    rmse = np.sqrt(mean_squared_error(test_data_validado["Preco_Medio"], previsoes))
+    r2 = r2_score(test_data_validado["Preco_Medio"], previsoes)
 
-    # Calcular e salvar métricas
-    mae = mean_absolute_error(test_data["Preco_Medio"], predictions)
-    rmse = np.sqrt(mean_squared_error(test_data["Preco_Medio"], predictions))
-    r2 = r2_score(test_data["Preco_Medio"], predictions)
+    # Salvar métricas e previsões
+    helper.salvar_metricas_em_csv(nome_modelo, mae, rmse, r2, granularidade)
+    helper.salva_previsao_csv(nome_modelo.lower(), previsoes.values, granularidade)
 
-    salvar_metricas_em_csv("SARIMA", mae, rmse, r2)
+    print(f"📊 {nome_modelo} - MAE: {mae:.4f}, RMSE: {rmse:.4f}, R²: {r2:.4f}")
+    print(f"📁 Previsões salvas em 'resultados/{nome_modelo.lower()}_predictions.csv'.")
 
-    print(f"SARIMA - MAE: {mae}, RMSE: {rmse}, R²: {r2}")
-    print("Previsões salvas com sucesso em 'resultados/sarima_predictions.csv'.")
+def executar_sarima(caminho_teste="dados_processados", granularidade="mensal"):
+    """
+    Executa o pipeline completo do modelo SARIMA para a granularidade especificada.
+    """
+    print(f"\n🚀 Executando SARIMA com otimização de parâmetros para granularidade {granularidade}...")
+
+    train_data, test_data = carregar_dados(caminho_teste, granularidade)
+
+    # Tratar valores ausentes nos conjuntos de dados
+    train_data, test_data = helper.tratar_nans(train_data, test_data, metodo="interpolacao")
+
+    ajustar_sarima(train_data, test_data, "SARIMA", granularidade)
+
+def ajustar_prophet(train_data, test_data, nome_modelo="Prophet", granularidade="mensal"):
+    """
+    Ajusta o modelo Prophet e realiza previsões.
+    """
+    if train_data is None or test_data is None:
+        print("❌ Erro: Conjuntos de dados inválidos.")
+        return
+
+    # Tratar valores ausentes
+    train_data, test_data = helper.tratar_nans(train_data, test_data, metodo="interpolacao")
+
+    # Preparar os dados para o Prophet (colunas 'ds' e 'y')
+    train_data_prophet = train_data.reset_index().rename(columns={"Data": "ds", "Preco_Medio": "y"})
+    test_data_prophet = test_data.reset_index().rename(columns={"Data": "ds", "Preco_Medio": "y"})
+
+    # Identificar a sazonalidade com base na granularidade
+    sazonalidade = {"diaria": "daily", "semanal": "weekly", "mensal": "monthly"}.get(granularidade, "monthly")
+
+    # Inicializar o modelo Prophet com sazonalidade
+    print(f"\n🚀 Treinando o modelo {nome_modelo} com sazonalidade: {sazonalidade}...")
+    modelo = Prophet()
+
+    if sazonalidade == "weekly":
+        modelo.add_seasonality(name="weekly", period=7, fourier_order=3)
+    elif sazonalidade == "monthly":
+        modelo.add_seasonality(name="monthly", period=30.5, fourier_order=5)
+
+    # Ajustar o modelo
+    modelo.fit(train_data_prophet)
+
+    # Realizar previsões
+    futuro = modelo.make_future_dataframe(periods=len(test_data), freq=test_data.index.freqstr)
+    previsoes = modelo.predict(futuro)
+
+    # Ajustar previsões ao intervalo do conjunto de teste usando reindex
+    previsoes = previsoes.set_index("ds").reindex(test_data_prophet["ds"])["yhat"]
+
+    # Remover valores ausentes
+    previsoes.dropna(inplace=True)
+    test_data_validado = test_data.loc[previsoes.index]
+
+    # Calcular métricas de desempenho
+    mae = mean_absolute_error(test_data_validado["Preco_Medio"], previsoes)
+    rmse = np.sqrt(mean_squared_error(test_data_validado["Preco_Medio"], previsoes))
+    r2 = r2_score(test_data_validado["Preco_Medio"], previsoes)
+
+    # Salvar métricas e previsões
+    helper.salvar_metricas_em_csv(nome_modelo, mae, rmse, r2, granularidade)
+    helper.salva_previsao_csv(nome_modelo.lower(), previsoes.values, granularidade)
+
+    print(f"📊 {nome_modelo} - MAE: {mae:.4f}, RMSE: {rmse:.4f}, R²: {r2:.4f}")
+    print(f"📁 Previsões salvas em 'resultados/{nome_modelo.lower()}_predictions.csv'.")
+
+def executar_prophet(caminho_teste="dados_processados", granularidade="mensal"):
+    """
+    Executa o pipeline completo do modelo Prophet para a granularidade especificada.
+    """
+    print(f"\n🚀 Executando Prophet para granularidade {granularidade}...")
+
+    train_data, test_data = carregar_dados(caminho_teste, granularidade)
+
+    # Tratar valores ausentes nos conjuntos de dados
+    train_data, test_data = helper.tratar_nans(train_data, test_data, metodo="interpolacao")
+
+    ajustar_prophet(train_data, test_data, "Prophet", granularidade)
+
+def diagnosticar_dados(train_data, test_data):
+    print("\n📊 Diagnóstico dos Dados\n")
+
+    # 1. Verificar dados ausentes (NaN) em treino e teste
+    print("✅ Dados de Treino:")
+    print(train_data.info())
+    print("\nValores ausentes no treino:\n", train_data.isna().sum())
+    print("\nPrimeiras linhas do treino:\n", train_data.head())
+
+    print("\n✅ Dados de Teste:")
+    print(test_data.info())
+    print("\nValores ausentes no teste:\n", test_data.isna().sum())
+    print("\nPrimeiras linhas do teste:\n", test_data.head())
+
+    # 2. Checar índice e frequência
+    print("\n📅 Frequência dos índices:")
+    print("Treino (freq):", train_data.index.freq)
+    print("Teste (freq):", test_data.index.freq)
+
+    # Garantir consistência no índice
+    if train_data.index.freq is None or test_data.index.freq is None:
+        print("⚠️ Frequência não definida! Ajustando para frequência detectada...")
+
+        # Detecta e ajusta a frequência
+        train_data = train_data.asfreq(pd.infer_freq(train_data.index))
+        test_data = test_data.asfreq(pd.infer_freq(test_data.index))
+
+        print("Treino (corrigido):", train_data.index.freq)
+        print("Teste (corrigido):", test_data.index.freq)
+
+    # 3. Verificar valores infinitos
+    print("\n♾️ Checando valores infinitos...")
+    print("Infinitos no treino:", np.isinf(train_data).sum())
+    print("Infinitos no teste:", np.isinf(test_data).sum())
+
+    # 4. Identificar entradas duplicadas no índice
+    print("\n🔍 Verificando duplicatas no índice...")
+    print("Duplicatas no treino:", train_data.index.duplicated().sum())
+    print("Duplicatas no teste:", test_data.index.duplicated().sum())
+
+    return train_data, test_data
